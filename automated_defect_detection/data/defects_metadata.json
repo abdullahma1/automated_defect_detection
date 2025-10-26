@@ -1,0 +1,10 @@
+{
+  "default": [
+    {"type": "Crack", "boundingBox": [120, 80, 165, 110], "confidence": 0.94},
+    {"type": "Scratch", "boundingBox": [280, 150, 340, 165], "confidence": 0.87}
+  ],
+  "circuit_board_001.jpg": [
+    {"type": "Crack", "boundingBox": [100, 60, 148, 92], "confidence": 0.92},
+    {"type": "Discoloration", "boundingBox": [260, 140, 320, 180], "confidence": 0.81}
+  ]
+}

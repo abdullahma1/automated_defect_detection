@@ -1,0 +1,80 @@
+Main objective
+is project ka kaam hai computer vision aur AI ka istemal kar ke pipelines ya kisi bhi cheez ki images mein maujood defects (kharabi) ko khud-ba-khud pehchanna, unhe record karna, aur report banana.
+
+
+UI se Backend ka Sahi Flow (Desktop App)
+Desktop application mein, aapka UI code aur backend code ek hi process mein chalta hai. Aapko web requests ki zaroorat nahi hoti. Instead, aap UI button par click hone par seedhe Python functions ko call karte hain.
+
+Poora flow is tarah hai:
+Image Path Lena: Uploadfile.py mein browse_files() function file dialog se image ka path (self.image_path) le kar use ek variable mein store karta hai.
+Button Ko Function Se Jorna: Aapko Preprocess & Detect Defects button ko ek function se jorna hoga. Yeh function self.image_path ko lega.
+Backend Class Call Karna: Yeh function aapke main.py file mein banaye gaye DefectDetectionSystem class ke upload_and_process_image() method ko call karega, aur us method ko image ka path pass karega.
+Database aur Processing: upload_and_process_image() method ab aapke pichle code ke mutabiq database mein records daalega, YOLO model se processing karega, aur reports save karega.
+Aapke diye gaye code mein, uploadfile.py ko main.py se connect karne ke liye kuch choti changes karna zaroori hain. Main woh changes niche de raha hoon.
+
+
+
+
+YOLO Model se Processing kaise hoti hai?
+YOLO (You Only Look Once) aik bohot taiz aur powerful pre-trained model hai. . Iska matlab hai ke is model ko pehle hi laakhon images par train kiya gaya hai taake woh alag-alag objects ko pehchan sake.
+Aapke project mein, yeh model defects ko pehchanne ke liye istemal hota hai. Yeh poora process in steps mein hota hai:
+Image Input: Aapki GUI (Uploadfile.py) se jab user "Start Analysis" button click karta hai, to main.py file mein upload_and_process_image() function call hota hai. Is function ko user ki select ki hui image ka file path milta hai.
+Model Loading: main.py ke andar, ImageProcessor class, ObjectDetectionModel ko load karti hai. Is waqt, aapka code YOLOv4-Tiny model ko memory mein load karta hai.
+Model Prediction: Ab, image_processor.detect() function image ko model mein input karta hai. Yeh model image mein maujood har object ko analyze karta hai. Yeh insaan ki tarah poori image ko aik hi baar mein dekhta hai, aur isi liye iska naam "You Only Look Once" hai.
+Bounding Box aur Confidence Score: Model jab bhi koi defect pehchanta hai, woh do cheezein deta hai:
+Bounding Box: Aik rectangle jiske coordinates hote hain. Yeh rectangle us defect ko gher leta hai. Yeh batata hai ke "defect yahan par hai".
+Confidence Score: Aik percentage (jaise 95% ya 70%). Yeh batata hai ke model kitna yakin hai ke us ne jo pehchana hai woh waqai mein aik defect hai.
+Output aur Database Mein Save: image_processor.detect() function in bounding boxes aur confidence scores ko aik list mein ikhatta karta hai. Yeh list phir main.py ko wapis de di jaati hai. main.py is list ko database_manager.save_defects() function ko deta hai. Aakhir mein, save_defects() function har aik defect ke liye defects table mein aik alag record insert karta hai.
+Is tarah, aapke code mein YOLO model ka kaam input lena aur defects ke bare mein maloomat dena hai, jis ke baad woh data database mein store ho jata hai.
+
+
+
+
+
+OLO Model Kaise Kaam Karta Hai
+YOLO ka matlab hai "You Only Look Once". Iska yeh naam is liye hai kyunke dusre models ke muqable mein, yeh poori image ko ek hi baar mein analyse karta hai aur objects ko pehchaan leta hai.
+
+Iska process do hisson mein taqseem hota hai, jaisa ke aapke code mein hai:
+
+1. Pre-training aur Files
+Model ko istemal karne se pehle isay hazaron ya lakhon tasweeron par train kiya jata hai. Is training ke nateejay mein teen zaroori files banti hain jinhe aap apne code mein load kar rahe hain:
+
+.cfg (Configuration File): Yeh model ka naksha (blueprint) hai. Yeh batata hai ke model ki kitni layers hain aur un ka structure kya hai.
+
+.weights (Weights File): Yeh model ka brain hai. Is mein woh saari maloomat hoti hain jo model ne training ke dauran seekhi hain. Yeh file batati hai ke kaunsa pixel pattern "crack" hai ya kaunsa "dent" hai.
+
+.names (Names File): Yeh un objects ki list hai jinhein model pehchan sakta hai. Aapke case mein, is mein defects ke naam ho sakte hain.
+
+__init__ function inhi files ko load kar ke model ko tayar karta hai.
+
+2. Real-time Detection (detect_defects function)
+Jab aap detect_defects function ko koi image dete hain, to yeh steps follow hote hain:
+Image Ko Tayyar Karna (cv2.dnn.blobFromImage()): Computer model ke liye raw image ko seedha istemal nahi kar sakta. blobFromImage function image ko ek khaas format mein badal deta hai jise blob kehte hain. Is amal mein image ka size 416x416 pixels kar diya jata hai.
+Model Mein Image Dena (self.net.forward()): Ab yeh tayyar shuda image model ko di jaati hai. Model puri image ko ek hi baar mein dekhta hai aur alag alag jagahon par objects ki tashkees karta hai.
+Output Ko Filter Karna: Model ka output kai bounding boxes deta hai. Har box ke saath ek confidence score hota hai jo batata hai ke model ko apne faisle par kitna yaqeen hai.
+if confidence > 0.5: Aapke code mein, sirf woh results liye jaate hain jin ka confidence score 50% se zyada ho.
+Redundant Boxes Ko Hatana (cv2.dnn.NMSBoxes()): Ek hi defect par kai bounding boxes ban sakte hain. Non-Maximum Suppression (NMS) sabse behtar box ko chunta hai aur baaqi sab ko hata deta hai.
+Final Results: Akhir mein, saaf suthre aur behtar results ko ek list mein jama kiya jata hai, jismein har defect ke liye uski location (boundingBox), type, aur confidence score shamil hota hai.
+
+Sawal-Jawab (YOLO se Mutalliq)
+
+Sawal 1: YOLO aur dusre Object Detection Models (jaise R-CNN) mein kya farq hai?
+Jawab:
+YOLO ek one-stage detector hai, jabke R-CNN jaise models two-stage detectors hote hain.
+YOLO: Yeh aik hi stage mein image mein maujood objects ko pehchanta aur classify karta hai. Isi wajah se yeh bohot tez kaam karta hai.
+Two-stage Models: Pehle yeh model image mein se har object ko alag alag pehchanta hai (stage 1) aur phir har object ko classify karta hai (stage 2). Is tareeqe se performance behtar ho sakti hai, lekin yeh bohot slow hota hai.
+Sawal 2: Bounding Box aur Confidence Score kya hai, aur yeh kyun zaroori hain?
+Jawab:
+
+Bounding Box: Yeh ek rectangle hai jo model us object ke gird banata hai jise usne pehchana hai. Yeh batata hai ke "object yahan par hai".
+Confidence Score: Yeh ek percentage ya value hoti hai jo 0 se 1 ke darmiyan hoti hai aur yeh batati hai ke model ko kitna yaqeen hai ke usne sahi object pehchana hai. Misaal ke taur par, agar score 0.95 hai to matlab model 95% yaqeen ke saath keh raha hai ke woh "crack" hi hai.
+Yeh dono cheezein zaroori hain kyunke bounding box se humein object ki location milti hai, aur confidence score se humein pata chalta hai ke model ki prediction kitni accurate hai.
+
+Sawal 3: Non-Maximum Suppression (NMS) ka kya maqsad hai?
+Jawab:
+NMS ek zaroori post-processing step hai. Aksar, aik hi object par model kai overlapping bounding boxes generate kar deta hai. NMS ka kaam hai sabse zyada confidence score wale box ko rakhna aur baqi sab overlapping boxes ko hata dena. Is se final results saaf suthre aur sateek ho jaate hain.
+
+
+
+pip install -r requirements.txt
+
