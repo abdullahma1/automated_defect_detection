@@ -46,6 +46,50 @@ class DefectReportApp(ctk.CTk):
             ]
         }
         
+        # Try to override dummy data with DB details if --report=ID is provided
+        try:
+            import sys, os, json
+            PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            if PROJECT_ROOT not in sys.path:
+                sys.path.insert(0, PROJECT_ROOT)
+            from automated_defect_detection.database_manager import fetch_report_details
+            report_id = None
+            for arg in sys.argv[1:]:
+                if arg.startswith("--report="):
+                    report_id = arg.split("=", 1)[1]
+                    break
+            details = fetch_report_details(report_id) if report_id else None
+            if details:
+                defects = []
+                for idx, d in enumerate(details.get("defects", []), start=1):
+                    bb = d.get("boundingBox") or []
+                    pos = "(n/a)"
+                    dims = "n/a"
+                    if isinstance(bb, list) and len(bb) == 4:
+                        x1, y1, x2, y2 = bb
+                        pos = f"({x1}, {y1})"
+                        dims = f"{max(0, x2 - x1)}x{max(0, y2 - y1)}px"
+                    conf = d.get('confidence')
+                    conf_str = "-" if conf is None else (f"{float(conf)*100:.1f}%" if float(conf) <= 1.0 else f"{float(conf):.1f}%")
+                    defects.append({
+                        "id": idx,
+                        "type": d.get("type", "Unknown"),
+                        "confidence": conf_str,
+                        "position": pos,
+                        "dimensions": dims,
+                        "area": "-",
+                        "severity": "-"
+                    })
+                self.report_data = {
+                    "id": details.get("reportID") or report_id or "",
+                    "image_file": details.get("filename") or "",
+                    "analysis_date": str(details.get("reportDate") or ""),
+                    "processing_time": "-",
+                    "total_defects": len(defects),
+                    "defects": defects,
+                }
+        except Exception:
+            pass
         self._create_header()
         self._create_analysis_summary()
         self._create_main_content()
@@ -75,10 +119,10 @@ class DefectReportApp(ctk.CTk):
         subtitle_label = ctk.CTkLabel(header_frame, text=f"Report ID: {self.report_data['id']}", font=("Roboto", 12), text_color="#666")
         subtitle_label.grid(row=0, column=1, sticky="w", padx=(190, 0))
 
-        export_csv_button = ctk.CTkButton(header_frame, text="Export CSV", width=120, height=40)
+        export_csv_button = ctk.CTkButton(header_frame, text="Export CSV", width=120, height=40, command=self.export_csv)
         export_csv_button.grid(row=0, column=2, padx=(0, 5), pady=10)
         
-        download_pdf_button = ctk.CTkButton(header_frame, text="Download PDF", width=120, height=40, fg_color="#3b82f6")
+        download_pdf_button = ctk.CTkButton(header_frame, text="Download JSON", width=120, height=40, fg_color="#3b82f6", command=self.export_json)
         download_pdf_button.grid(row=0, column=3, padx=(0, 20), pady=10)
 
     def _create_analysis_summary(self):
@@ -131,6 +175,39 @@ class DefectReportApp(ctk.CTk):
         
         for defect in self.report_data['defects']:
             self._create_defect_card(details_frame, defect)
+
+    def export_csv(self):
+        from tkinter import filedialog
+        import csv
+        path = filedialog.asksaveasfilename(defaultextension=".csv", filetypes=[("CSV Files", "*.csv")])
+        if not path:
+            return
+        with open(path, "w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow(["id", "type", "confidence", "position", "dimensions", "area", "severity"])
+            for d in self.report_data.get("defects", []):
+                writer.writerow([d.get("id"), d.get("type"), d.get("confidence"), d.get("position"), d.get("dimensions"), d.get("area"), d.get("severity")])
+
+    def export_json(self):
+        from tkinter import filedialog
+        import json, sys, os
+        path = filedialog.asksaveasfilename(defaultextension=".json", filetypes=[("JSON Files", "*.json")])
+        if not path:
+            return
+        try:
+            PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            if PROJECT_ROOT not in sys.path:
+                sys.path.insert(0, PROJECT_ROOT)
+            from automated_defect_detection.database_manager import fetch_report_details
+            rid = self.report_data.get("id")
+            data = fetch_report_details(rid) if rid else {}
+        except Exception:
+            data = self.report_data
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(data or {}, f, indent=2, ensure_ascii=False)
+        except Exception:
+            pass
 
     def _create_defect_card(self, parent, defect_data):
         card_frame = ctk.CTkFrame(parent, fg_color="#f7f7f7", corner_radius=10)

@@ -1,6 +1,14 @@
 import customtkinter as ctk
 import subprocess
-import sys
+import sys, os, csv
+from tkinter import filedialog
+
+# Ensure project root on sys.path for backend imports
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+
+from automated_defect_detection.database_manager import fetch_recent_reports
 
 # Set the appearance mode and default color theme
 ctk.set_appearance_mode("light")
@@ -23,6 +31,7 @@ class AnalysisHistoryApp(ctk.CTk):
         self._create_header()
         self._create_search_bar()
         self._create_summary_cards()
+        self.reports = []
         self._create_reports_list()
     
     def go_back(self):
@@ -93,19 +102,22 @@ class AnalysisHistoryApp(ctk.CTk):
 
         title_label = ctk.CTkLabel(list_frame, text="Recent Analysis Reports", font=("Roboto", 20, "bold"), text_color="#333")
         title_label.pack(pady=(20, 5), anchor="w", padx=20)
-        subtitle_label = ctk.CTkLabel(list_frame, text="5 of 5 reports", font=("Roboto", 12), text_color="#666")
-        subtitle_label.pack(pady=(0, 15), anchor="w", padx=20)
+        try:
+            self.reports = fetch_recent_reports(limit=50)
+        except Exception:
+            self.reports = []
+        subtitle_label = ctk.CTkLabel(list_frame, text=f"{len(self.reports)} reports", font=("Roboto", 12), text_color="#666")
+        subtitle_label.pack(pady=(0, 10), anchor="w", padx=20)
+        ctk.CTkButton(list_frame, text="Export CSV", width=120, height=32, command=self.export_csv).pack(pady=(0, 10), anchor="e", padx=20)
 
-        # List of dummy report data
-        reports_data = [
-            ("circuit_board_001.jpg", "RPT-170324800000", "Jan 8, 2024, 07:30 PM", "2.3s", "3 defects detected", "#e74c3c"),
-            ("metal_component_052.jpg", "ID: RPT-170335240000", "Jan 7, 2024, 03:15 PM", "1.8s", "No defects found", "#2ecc71"),
-            ("textile_sample_019.jpg", "ID: RPT-170335200000", "Jan 6, 2024, 09:45 PM", "2.1s", "2 defects detected", "#e74c3c"),
-            ("pcb_assembly_003.jpg", "ID: RPT-170328630000", "Jan 5, 2024, 02:20 PM", "3.2s", "5 defects detected", "#e74c3c"),
-            ("glass_panel_045.jpg", "ID: RPT-170317920000", "Jan 4, 2024, 06:10 PM", "1.9s", "1 defect detected", "#e74c3c")
-        ]
-
-        for desc, report_id, timestamp, analysis_time, status_text, status_color in reports_data:
+        for row in self.reports:
+            desc = row.get("filename") or "(unknown)"
+            report_id = row.get("reportID")
+            timestamp = str(row.get("reportDate"))
+            analysis_time = "-"
+            defect_count = row.get("defectCount", 0) or 0
+            status_text = f"{defect_count} defects"
+            status_color = "#e74c3c" if defect_count > 0 else "#2ecc71"
             self._create_report_item(list_frame, desc, report_id, timestamp, analysis_time, status_text, status_color)
 
     def _create_report_item(self, parent_frame, filename, report_id, date_time, analysis_time, status_text, status_color):
@@ -148,6 +160,23 @@ class AnalysisHistoryApp(ctk.CTk):
             subprocess.Popen([sys.executable, "UI/ViewReport.py"], creationflags=subprocess.CREATE_NEW_CONSOLE)
         except Exception:
             subprocess.Popen([sys.executable, "UI/ViewReport.py"])
+
+    def export_csv(self):
+        try:
+            path = filedialog.asksaveasfilename(defaultextension=".csv", filetypes=[("CSV Files", "*.csv")])
+            if not path:
+                return
+            if not getattr(self, 'reports', None):
+                self.reports = fetch_recent_reports(limit=50)
+            with open(path, "w", newline="", encoding="utf-8") as f:
+                writer = csv.writer(f)
+                writer.writerow(["reportID", "imageID", "filename", "reportDate", "defectCount", "reportPath", "userID"])
+                for r in self.reports:
+                    writer.writerow([
+                        r.get("reportID"), r.get("imageID"), r.get("filename"), r.get("reportDate"), r.get("defectCount"), r.get("reportPath"), r.get("userID")
+                    ])
+        except Exception:
+            pass
 
 if __name__ == "__main__":
     app = AnalysisHistoryApp()

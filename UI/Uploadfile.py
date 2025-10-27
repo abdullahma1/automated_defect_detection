@@ -3,7 +3,19 @@ import tkinter as tk
 from tkinter import filedialog
 from PIL import Image, ImageTk
 import subprocess
-import sys
+import sys, os, json
+from pathlib import Path
+import cv2
+import numpy as np
+import uuid, datetime
+
+# Ensure project root on sys.path for backend imports
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+
+from automated_defect_detection.models import Image as ImageModel, Defect as DefectModel, Report as ReportModel
+from automated_defect_detection.database_manager import save_image, save_defects, save_report, init_db
 
 # Set the appearance mode and default color theme
 ctk.set_appearance_mode("light")
@@ -16,6 +28,9 @@ class ImageUploadApp(ctk.CTk):
         self.geometry("1000x700")
         self.configure(fg_color="#f0f2f5")  # Light grey background
         self.image_path = None
+        self.model = None
+        self.class_names = ["negative", "positive"]
+        self.img_size = 224  # must match training export
 
         # Configure the main grid
         self.grid_rowconfigure(0, weight=0)  # Header
@@ -24,6 +39,11 @@ class ImageUploadApp(ctk.CTk):
 
         self._create_header()
         self._create_main_content()
+        self._load_classifier()
+        try:
+            init_db()
+        except Exception:
+            pass
     
     def go_back(self):
         # Example: destroy current window
@@ -95,6 +115,14 @@ class ImageUploadApp(ctk.CTk):
                                           font=("Roboto", 14, "bold"), corner_radius=10)
         preprocess_button.pack(pady=(0, 20))
 
+        # Classification UI additions
+        self.result_label = ctk.CTkLabel(upload_frame, text="", font=("Roboto", 13), text_color="#333")
+        self.result_label.pack(pady=(0, 10))
+
+        classify_button = ctk.CTkButton(upload_frame, text="Classify Image", width=250, height=40,
+                                        font=("Roboto", 14, "bold"), corner_radius=10, command=self.classify_image)
+        classify_button.pack(pady=(0, 20))
+
     def _create_preview_section(self, parent_frame):
         preview_frame = ctk.CTkFrame(parent_frame, fg_color="white", corner_radius=10)
         preview_frame.grid(row=0, column=1, sticky="nsew", padx=(10, 0))
@@ -113,6 +141,10 @@ class ImageUploadApp(ctk.CTk):
         if file_path:
             self.image_path = file_path
             self.update_preview()
+            try:
+                self.result_label.configure(text="")
+            except Exception:
+                pass
 
     def update_preview(self):
         if self.image_path:
@@ -126,6 +158,127 @@ class ImageUploadApp(ctk.CTk):
             # Update the preview label with the new image
             self.preview_label.configure(image=tk_image, text="")
             self.preview_label.image = tk_image # Keep a reference to avoid garbage collection
+
+    def _load_classifier(self):
+        try:
+            project_root = Path(__file__).resolve().parents[1]
+            clf_dir = project_root / "automated_defect_detection" / "trained" / "classifier"
+            onnx_path = clf_dir / "best.onnx"
+            label_map_path = clf_dir / "label_map.json"
+            if label_map_path.exists():
+                with open(label_map_path, "r", encoding="utf-8") as f:
+                    label_map = json.load(f)
+                if isinstance(label_map, dict):
+                    self.class_names = [label_map[str(i)] for i in range(len(label_map)) if str(i) in label_map]
+                elif isinstance(label_map, list):
+                    self.class_names = label_map
+            if not onnx_path.exists():
+                return
+            self.model = cv2.dnn.readNetFromONNX(str(onnx_path))
+            try:
+                self.model.setPreferableBackend(cv2.dnn.DNN_BACKEND_CUDA)
+                self.model.setPreferableTarget(cv2.dnn.DNN_TARGET_CUDA)
+            except Exception:
+                self.model.setPreferableBackend(cv2.dnn.DNN_BACKEND_DEFAULT)
+                self.model.setPreferableTarget(cv2.dnn.DNN_TARGET_CPU)
+        except Exception:
+            self.model = None
+
+    def _preprocess_for_onnx(self, img_path: str):
+        bgr = cv2.imread(img_path)
+        if bgr is None:
+            raise RuntimeError("Failed to read image")
+        rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+        resized = cv2.resize(rgb, (self.img_size, self.img_size), interpolation=cv2.INTER_LINEAR)
+        arr = resized.astype(np.float32) / 255.0
+        mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)
+        std = np.array([0.229, 0.224, 0.225], dtype=np.float32)
+        arr = (arr - mean) / std
+        chw = np.transpose(arr, (2, 0, 1))  # HWC -> CHW
+        blob = np.expand_dims(chw, axis=0)  # NCHW
+        return blob
+
+    def classify_image(self):
+        if not self.image_path:
+            from tkinter import messagebox
+            messagebox.showinfo("Info", "Please choose an image first.")
+            return
+        if self.model is None:
+            self.result_label.configure(text="Model not loaded. Train the model to create best.onnx.", text_color="#ef4444")
+            return
+        try:
+            inp = self._preprocess_for_onnx(self.image_path)
+            self.model.setInput(inp)
+            logits = self.model.forward()
+            logits = np.array(logits).reshape(1, -1)
+            probs = np.exp(logits - logits.max(axis=1, keepdims=True))
+            probs = probs / probs.sum(axis=1, keepdims=True)
+            idx = int(np.argmax(probs, axis=1)[0])
+            conf = float(probs[0, idx])
+            label = self.class_names[idx] if idx < len(self.class_names) else str(idx)
+            self.result_label.configure(text=f"Prediction: {label} ({conf:.2%})", text_color="#10b981")
+            # Persist result to DB as image/report with optional defect row
+            self._save_classification_to_db(label, conf)
+        except Exception as e:
+            self.result_label.configure(text=f"Inference error: {e}", text_color="#ef4444")
+
+    def _save_classification_to_db(self, label: str, confidence: float):
+        try:
+            os.makedirs("reports", exist_ok=True)
+            filename = os.path.basename(self.image_path)
+            # Image metadata
+            img = ImageModel(user_id=None, filename=filename, original_path=self.image_path, processed_path=None, status="classified")
+            try:
+                img.uploadDate = datetime.datetime.now()
+            except Exception:
+                pass
+            save_image(img)
+
+            defects = []
+            if label.lower() == "positive":
+                d = DefectModel(image_id=img.imageID, defect_type="positive", bounding_box=[], confidence=confidence)
+                defects.append(d)
+                save_defects(defects)
+
+            # Report
+            report_id = str(uuid.uuid4())
+            report_path = os.path.join("reports", f"{report_id}.json")
+            rpt = ReportModel(report_id, img.imageID, defect_count=len(defects), report_path=report_path)
+            try:
+                rpt.reportDate = datetime.datetime.now()
+            except Exception:
+                pass
+            save_report(rpt)
+
+            payload = {
+                "reportID": rpt.reportID,
+                "image": {
+                    "imageID": img.imageID,
+                    "filename": img.filename,
+                    "originalPath": img.originalPath,
+                    "processedPath": img.processedPath,
+                },
+                "reportDate": rpt.reportDate if isinstance(rpt.reportDate, str) else rpt.reportDate.isoformat(),
+                "defectCount": rpt.defectCount,
+                "prediction": label,
+                "confidence": confidence,
+                "defects": [
+                    {
+                        "defectID": d.defectID,
+                        "type": d.type,
+                        "confidence": d.confidence,
+                        "boundingBox": d.boundingBox,
+                    }
+                    for d in defects
+                ],
+            }
+            with open(report_path, "w", encoding="utf-8") as f:
+                json.dump(payload, f, indent=2)
+        except Exception as e:
+            try:
+                self.result_label.configure(text=f"Saved prediction. DB/report save warning: {e}", text_color="#f39c12")
+            except Exception:
+                pass
 
 if __name__ == "__main__":
     app = ImageUploadApp()

@@ -12,7 +12,6 @@ from .database_manager import (
     save_defects,
     save_report,
 )
-from .dummy_data import get_dummy_defects
 
 
 class BackendService:
@@ -39,7 +38,7 @@ class BackendService:
         save_user(u)
         return {"userID": u.userID, "username": u.username, "passwordHash": u.passwordHash}
 
-    def process_image(self, image_file_path: str) -> Dict[str, Any]:
+    def process_image(self, image_file_path: str, detected_defects: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
         if not self.current_user:
             return {"ok": False, "error": "User not logged in."}
 
@@ -55,8 +54,8 @@ class BackendService:
         img.status = "processed"
         save_image(img)
 
-        # 2) Load dummy defects from JSON
-        defects_dicts = get_dummy_defects(original_filename)
+        # 2) Use provided detected defects (from model) or default to none
+        defects_dicts = detected_defects or []
         defects: List[Defect] = []
         for d in defects_dicts:
             defects.append(
@@ -79,7 +78,7 @@ class BackendService:
         rpt.reportDate = datetime.datetime.now()
         save_report(rpt)
 
-        # 5) Write a JSON report file (dummy/friendly for UI)
+        # 5) Write a JSON report file (friendly for UI)
         try:
             import json
 
@@ -115,4 +114,3 @@ class BackendService:
             "defectCount": len(defects),
             "reportPath": report_path,
         }
-

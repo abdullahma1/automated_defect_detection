@@ -2,4 +2,10 @@ customtkinter
 Pillow
 mysql-connector-python
 numpy
-opencv-python
+opencv-python'?
+}[p;/.l
+torch
+torchvision
+scikit-learn
+tqdm
+matplotlib
