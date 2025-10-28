@@ -78,3 +78,13 @@ NMS ek zaroori post-processing step hai. Aksar, aik hi object par model kai over
 
 pip install -r requirements.txt
 
+
+
+python -m venv env 
+env\Scripts\activate
+Set-ExecutionPolicy RemoteSigned -Scope CurrentUser 
+.\env\Scripts\Activate.ps1
+
+
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
+python .\scripts\train_classifier.py --data_root .\archieve --model resnet18 --epochs 15 --batch_size 64  --img_size 160 --lr 0.001  --workers 2

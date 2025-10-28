@@ -1,12 +1,52 @@
 import customtkinter as ctk
 import tkinter as tk
 from tkinter import filedialog
-from PIL import Image, ImageTk
 import subprocess
 import sys, os, json
 from pathlib import Path
-import cv2
-import numpy as np
+
+# Guarded Pillow import (preview uses PIL.Image)
+try:
+    from PIL import Image, ImageTk
+except Exception as e:
+    print("Pillow import failed:", e)
+    print("Install/repair Pillow in your venv:")
+    print(r"  .\env\Scripts\activate")
+    print(r"  pip uninstall PIL -y && pip install --upgrade --force-reinstall --no-cache-dir pillow")
+    try:
+        from tkinter import messagebox
+        messagebox.showerror("Dependency error", "Pillow failed to import. Preview will be disabled. See console for reinstall steps.")
+    except Exception:
+        pass
+    Image = None
+    ImageTk = None
+
+# Guarded imports for NumPy/OpenCV to give actionable guidance instead of a cryptic crash
+try:
+    import numpy as np
+    import cv2
+except Exception as e:
+    # Keep the application running even if native libs fail to import.
+    # Provide actionable guidance but do NOT exit so the UI can still load in a degraded mode.
+    print("NumPy/OpenCV import failed:", e)
+    print("Common causes:")
+    print(" - Running Python from inside a `numpy` source directory or a local file named `numpy.py`")
+    print(" - Broken / mismatched binary wheels in the virtualenv")
+    print("Quick checks (from repo root):")
+    print(" - Ensure no local file/folder named 'numpy' or 'cv2' exists (e.g. `dir | findstr numpy`)")
+    print(" - Activate your venv and reinstall packages (commands below)")
+    try:
+        from tkinter import messagebox
+        messagebox.showerror(
+            "Dependency error",
+            "NumPy or OpenCV failed to import. The UI will run but model inference and image preprocessing will be disabled.\nSee terminal for reinstall steps."
+        )
+    except Exception:
+        pass
+    # Mark numpy/cv2 as unavailable so code can check and avoid using them.
+    np = None  # type: ignore
+    cv2 = None  # type: ignore
+
 import uuid, datetime
 
 # Ensure project root on sys.path for backend imports
@@ -30,7 +70,8 @@ class ImageUploadApp(ctk.CTk):
         self.image_path = None
         self.model = None
         self.class_names = ["negative", "positive"]
-        self.img_size = 224  # must match training export
+        self.img_size = 160  # match the training img_size parameter
+        self.output_dir = os.path.join(PROJECT_ROOT, "automated_defect_detection", "trained", "classifier")
 
         # Configure the main grid
         self.grid_rowconfigure(0, weight=0)  # Header
@@ -148,16 +189,25 @@ class ImageUploadApp(ctk.CTk):
 
     def update_preview(self):
         if self.image_path:
-            # Open the image and resize it to fit the preview frame
-            pil_image = Image.open(self.image_path)
-            pil_image.thumbnail((500, 500))  # Resize to fit
-            
-            # Convert to PhotoImage for Tkinter
-            tk_image = ctk.CTkImage(light_image=pil_image, size=(pil_image.width, pil_image.height))
-            
-            # Update the preview label with the new image
-            self.preview_label.configure(image=tk_image, text="")
-            self.preview_label.image = tk_image # Keep a reference to avoid garbage collection
+            # Try to open with Pillow; if unavailable, show a safe textual fallback.
+            try:
+                if Image is None:
+                    raise RuntimeError("Pillow not available")
+                pil_image = Image.open(self.image_path)
+                pil_image.thumbnail((500, 500))  # Resize to fit
+                # Convert to PhotoImage for Tkinter
+                tk_image = ctk.CTkImage(light_image=pil_image, size=(pil_image.width, pil_image.height))
+                # Update the preview label with the new image
+                self.preview_label.configure(image=tk_image, text="")
+                self.preview_label.image = tk_image  # Keep a reference to avoid garbage collection
+            except Exception:
+                # Fallback: show filename and a short note in the preview area
+                try:
+                    fname = os.path.basename(self.image_path) if self.image_path else ""
+                    self.preview_label.configure(image=None, text=fname + "\n(Preview unavailable)")
+                    self.preview_label.image = None
+                except Exception:
+                    pass
 
     def _load_classifier(self):
         try:
@@ -174,13 +224,13 @@ class ImageUploadApp(ctk.CTk):
                     self.class_names = label_map
             if not onnx_path.exists():
                 return
+            
+            # Load the ONNX model
             self.model = cv2.dnn.readNetFromONNX(str(onnx_path))
-            try:
-                self.model.setPreferableBackend(cv2.dnn.DNN_BACKEND_CUDA)
-                self.model.setPreferableTarget(cv2.dnn.DNN_TARGET_CUDA)
-            except Exception:
-                self.model.setPreferableBackend(cv2.dnn.DNN_BACKEND_DEFAULT)
-                self.model.setPreferableTarget(cv2.dnn.DNN_TARGET_CPU)
+            
+            # Always use CPU backend for compatibility
+            self.model.setPreferableBackend(cv2.dnn.DNN_BACKEND_OPENCV)
+            self.model.setPreferableTarget(cv2.dnn.DNN_TARGET_CPU)
         except Exception:
             self.model = None
 
@@ -197,7 +247,7 @@ class ImageUploadApp(ctk.CTk):
         chw = np.transpose(arr, (2, 0, 1))  # HWC -> CHW
         blob = np.expand_dims(chw, axis=0)  # NCHW
         return blob
-
+# here 
     def classify_image(self):
         if not self.image_path:
             from tkinter import messagebox
@@ -224,10 +274,44 @@ class ImageUploadApp(ctk.CTk):
 
     def _save_classification_to_db(self, label: str, confidence: float):
         try:
-            os.makedirs("reports", exist_ok=True)
-            filename = os.path.basename(self.image_path)
-            # Image metadata
-            img = ImageModel(user_id=None, filename=filename, original_path=self.image_path, processed_path=None, status="classified")
+            # Create necessary directories
+            base_dir = os.path.join(PROJECT_ROOT, "data")
+            reports_dir = os.path.join(base_dir, "reports")
+            images_dir = os.path.join(base_dir, "images")
+            processed_dir = os.path.join(base_dir, "processed")
+            for d in [reports_dir, images_dir, processed_dir]:
+                os.makedirs(d, exist_ok=True)
+            
+            # Save image with timestamp
+            filename = os.path.basename(self.image_path) if self.image_path else ""
+            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            saved_filename = f"{timestamp}_{filename}"
+            image_copy_path = os.path.join(images_dir, saved_filename)
+            
+            # Copy original image
+            import shutil
+            shutil.copy2(self.image_path, image_copy_path)
+            
+            # Create processed version with prediction overlay
+            img = cv2.imread(self.image_path)
+            if img is not None:
+                # Add prediction text
+                text = f"{label} ({confidence:.1%})"
+                color = (0, 255, 0) if label.lower() == "negative" else (0, 0, 255)
+                cv2.putText(img, text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
+                
+                # Save processed image
+                processed_filename = f"{timestamp}_processed_{filename}"
+                processed_path = os.path.join(processed_dir, processed_filename)
+                cv2.imwrite(processed_path, img)
+            # Image metadata with proper paths
+            img = ImageModel(
+                user_id=None,
+                filename=saved_filename,
+                original_path=image_copy_path,
+                processed_path=processed_path,
+                status="classified"
+            )
             try:
                 img.uploadDate = datetime.datetime.now()
             except Exception:
@@ -242,7 +326,7 @@ class ImageUploadApp(ctk.CTk):
 
             # Report
             report_id = str(uuid.uuid4())
-            report_path = os.path.join("reports", f"{report_id}.json")
+            report_path = os.path.join(self.output_dir, "reports", f"{report_id}.json")
             rpt = ReportModel(report_id, img.imageID, defect_count=len(defects), report_path=report_path)
             try:
                 rpt.reportDate = datetime.datetime.now()
@@ -272,8 +356,22 @@ class ImageUploadApp(ctk.CTk):
                     for d in defects
                 ],
             }
-            with open(report_path, "w", encoding="utf-8") as f:
-                json.dump(payload, f, indent=2)
+
+            # Write the report JSON file
+            try:
+                with open(report_path, "w", encoding="utf-8") as f:
+                    json.dump(payload, f, ensure_ascii=False, indent=2)
+                try:
+                    self.result_label.configure(text="Saved prediction and report.", text_color="#10b981")
+                except Exception:
+                    pass
+            except Exception as e:
+                # If writing file fails, still surface a warning in the UI
+                try:
+                    self.result_label.configure(text=f"Saved prediction. Report write failed: {e}", text_color="#f39c12")
+                except Exception:
+                    pass
+
         except Exception as e:
             try:
                 self.result_label.configure(text=f"Saved prediction. DB/report save warning: {e}", text_color="#f39c12")

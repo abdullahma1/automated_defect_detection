@@ -99,6 +99,17 @@ class AnalysisHistoryApp(ctk.CTk):
         list_frame = ctk.CTkFrame(self, fg_color="white", corner_radius=10)
         list_frame.grid(row=3, column=0, sticky="nsew", padx=20, pady=(0, 20))
         list_frame.grid_columnconfigure(0, weight=1)
+        
+        # Refresh button
+        refresh_btn = ctk.CTkButton(
+            list_frame, 
+            text="🔄 Refresh", 
+            width=100,
+            command=self.refresh_reports,
+            fg_color="transparent",
+            text_color="#3b82f6"
+        )
+        refresh_btn.pack(pady=(10,0), anchor="e", padx=20)
 
         title_label = ctk.CTkLabel(list_frame, text="Recent Analysis Reports", font=("Roboto", 20, "bold"), text_color="#333")
         title_label.pack(pady=(20, 5), anchor="w", padx=20)
@@ -155,11 +166,25 @@ class AnalysisHistoryApp(ctk.CTk):
                                         hover_color="#e6f0ff")
         download_button.grid(row=0, column=4, rowspan=2, padx=(0, 20), pady=10)
 
-    def open_view(self):
+    def refresh_reports(self):
+        """Refresh the reports list with latest data"""
         try:
-            subprocess.Popen([sys.executable, "UI/ViewReport.py"], creationflags=subprocess.CREATE_NEW_CONSOLE)
-        except Exception:
-            subprocess.Popen([sys.executable, "UI/ViewReport.py"])
+            self.reports = fetch_recent_reports(limit=50)
+            for widget in self.winfo_children():
+                widget.destroy()
+            self._create_reports_list()
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to refresh reports: {e}")
+
+    def open_view(self, report_id=None):
+        """Open the report viewer with specific report"""
+        try:
+            cmd = [sys.executable, "UI/ViewReport.py"]
+            if report_id:
+                cmd.append(f"--report={report_id}")
+            subprocess.Popen(cmd, creationflags=subprocess.CREATE_NEW_CONSOLE)
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to open report: {e}")
 
     def export_csv(self):
         try:
