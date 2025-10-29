@@ -1,6 +1,6 @@
 import customtkinter as ctk
 import subprocess
-import sys, os, csv
+import sys, os, csv, json, shutil
 from tkinter import filedialog, messagebox
 
 # Ensure project root on sys.path for backend imports
@@ -8,7 +8,7 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-from automated_defect_detection.database_manager import fetch_recent_reports
+from automated_defect_detection.database_manager import fetch_recent_reports, fetch_report_details
 
 # Set the appearance mode and default color theme
 ctk.set_appearance_mode("light")
@@ -164,8 +164,40 @@ class AnalysisHistoryApp(ctk.CTk):
         view_button.grid(row=0, column=3, rowspan=2, padx=(5, 5), pady=10)
         download_button = ctk.CTkButton(item_frame, text="⬇️", width=40, height=30,
                                         fg_color="transparent", text_color="#3b82f6", font=("Segoe UI Emoji", 14),
-                                        hover_color="#e6f0ff")
+                                        hover_color="#e6f0ff",
+                                        command=lambda rid=report_id: self.download_report(rid))
         download_button.grid(row=0, column=4, rowspan=2, padx=(0, 20), pady=10)
+
+    def download_report(self, report_id):
+        """Download a single report: prefer stored report JSON file; otherwise serialize DB details."""
+        try:
+            details = fetch_report_details(report_id)
+        except Exception as e:
+            messagebox.showerror("Error", f"Could not fetch report details: {e}")
+            return
+
+        # Determine default filename
+        default_name = f"{report_id or 'report'}.json"
+        # Try to use file dialog to choose destination
+        dest = filedialog.asksaveasfilename(defaultextension=".json",
+                                            filetypes=[("JSON Files", "*.json")],
+                                            initialfile=default_name)
+        if not dest:
+            return
+
+        # If a reportPath exists and file is present, copy it; else dump 'details' as JSON
+        try:
+            report_path = None
+            if isinstance(details, dict):
+                report_path = details.get("reportPath")
+            if report_path and os.path.isfile(report_path):
+                shutil.copy2(report_path, dest)
+            else:
+                with open(dest, "w", encoding="utf-8") as f:
+                    json.dump(details or {}, f, ensure_ascii=False, indent=2)
+            messagebox.showinfo("Saved", f"Report saved to:\n{dest}")
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to save report: {e}")
 
     def refresh_reports(self):
         """Refresh the reports list with latest data"""
