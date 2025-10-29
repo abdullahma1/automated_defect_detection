@@ -159,7 +159,7 @@ class AnalysisHistoryApp(ctk.CTk):
 
         # Action Buttons
         view_button = ctk.CTkButton(item_frame, text="View", width=70, height=30, font=("Roboto", 12),
-                                    command=lambda: self.open_view())
+                                    command=lambda rid=report_id: self.open_view(rid))
         view_button.grid(row=0, column=3, rowspan=2, padx=(5, 5), pady=10)
         download_button = ctk.CTkButton(item_frame, text="⬇️", width=40, height=30,
                                         fg_color="transparent", text_color="#3b82f6", font=("Segoe UI Emoji", 14),

@@ -83,6 +83,9 @@ class DefectReportApp(ctk.CTk):
                 self.report_data = {
                     "id": details.get("reportID") or report_id or "",
                     "image_file": details.get("filename") or "",
+                    "filename": details.get("filename") or "",
+                    "originalPath": details.get("originalPath") or "",
+                    "processedPath": details.get("processedPath") or "",
                     "analysis_date": str(details.get("reportDate") or ""),
                     "processing_time": "-",
                     "total_defects": len(defects),
@@ -157,13 +160,55 @@ class DefectReportApp(ctk.CTk):
         ctk.CTkLabel(image_frame, text="Processed Image", font=("Roboto", 16, "bold")).pack(pady=(20, 5), padx=20, anchor="w")
         ctk.CTkLabel(image_frame, text="Red bounding boxes indicate detected defects", font=("Roboto", 10), text_color="#666").pack(padx=20, anchor="w")
         
+        # Load report image from data/images (or DB paths) instead of a hardcoded file
         try:
-            # Note: You need a local image file named 'circuit_board.png' for this to work
-            pil_image = Image.open("circuit_board.png")
-            ctk_image = ctk.CTkImage(light_image=pil_image, size=(500, 300))
+            import os, sys
+            # Determine project root and images directory
+            PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            images_dir = os.path.join(PROJECT_ROOT, "data", "images")
+
+            # Preferred: use DB-provided originalPath/processedPath if available
+            img_path = None
+            # When launched with --report and DB connected, these keys may exist
+            # Try originalPath first, then processedPath
+            for key in ("originalPath", "processedPath"):
+                p = self.report_data.get(key) if isinstance(self.report_data, dict) else None
+                if p and os.path.isfile(p):
+                    img_path = p
+                    break
+
+            # Next, try filename/image_file in our known images directory
+            if not img_path:
+                fname = None
+                # DB-backed path
+                if isinstance(self.report_data, dict):
+                    fname = self.report_data.get("filename") or self.report_data.get("image_file")
+                if fname:
+                    candidate = os.path.join(images_dir, fname)
+                    if os.path.isfile(candidate):
+                        img_path = candidate
+
+            # Fallback: pick the most recent image in data/images
+            if not img_path and os.path.isdir(images_dir):
+                files = [
+                    os.path.join(images_dir, f)
+                    for f in os.listdir(images_dir)
+                    if f.lower().endswith((".png", ".jpg", ".jpeg", ".bmp", ".gif"))
+                ]
+                if files:
+                    img_path = max(files, key=os.path.getmtime)
+
+            if not img_path:
+                raise FileNotFoundError("No image found in data/images")
+
+            pil_image = Image.open(img_path)
+            # Scale reasonably to fit the panel
+            pil_image.thumbnail((900, 600))
+            ctk_image = ctk.CTkImage(light_image=pil_image, size=(pil_image.width, pil_image.height))
             image_label = ctk.CTkLabel(image_frame, image=ctk_image, text="")
             image_label.pack(pady=20, padx=20)
-        except FileNotFoundError:
+        except Exception:
+            # Graceful placeholder when image not available
             image_placeholder = ctk.CTkLabel(image_frame, text="[Image Placeholder]", font=("Roboto", 20), text_color="#999")
             image_placeholder.pack(expand=True, fill="both")
             
