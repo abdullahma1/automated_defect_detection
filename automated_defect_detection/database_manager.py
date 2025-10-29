@@ -211,3 +211,39 @@ def fetch_report_details(report_id):
             cursor.close()
             conn.close()
     return details
+
+# --- Lightweight analytics helpers for UI dashboards ---
+def _scalar_query(sql, params=()):
+    conn = get_db_connection()
+    result = 0
+    if conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute(sql, params)
+            row = cursor.fetchone()
+            if row and row[0] is not None:
+                try:
+                    result = int(row[0])
+                except Exception:
+                    try:
+                        result = float(row[0])
+                    except Exception:
+                        result = 0
+        except Error as e:
+            print(f"Scalar query error: {e}")
+        finally:
+            cursor.close()
+            conn.close()
+    return result
+
+def count_images():
+    return _scalar_query("SELECT COUNT(*) FROM images")
+
+def count_reports():
+    return _scalar_query("SELECT COUNT(*) FROM reports")
+
+def count_defects():
+    return _scalar_query("SELECT COUNT(*) FROM defects")
+
+def count_reports_without_defects():
+    return _scalar_query("SELECT COUNT(*) FROM reports WHERE defectCount = 0")

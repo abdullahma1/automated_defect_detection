@@ -1,7 +1,19 @@
 import customtkinter as ctk
 import subprocess
-import sys
+import sys, os, datetime
 
+# Ensure project root on sys.path for backend imports
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+
+from automated_defect_detection.database_manager import (
+    fetch_recent_reports,
+    count_images,
+    count_reports,
+    count_defects,
+    count_reports_without_defects,
+)
 from login import LoginApp
 
 # Set the appearance mode and default color theme
@@ -79,9 +91,28 @@ class DashboardApp(ctk.CTk):
         ctk.CTkLabel(dashboard_overview_frame, text="Dashboard Overview", font=("Roboto", 22, "bold"), text_color="#333").grid(row=0, column=0, sticky="w", columnspan=3)
         ctk.CTkLabel(dashboard_overview_frame, text="Monitor your defect detection analytics and manage image analysis", font=("Roboto", 12), text_color="#666").grid(row=1, column=0, sticky="w", columnspan=3, pady=(0, 15))
 
-        self._create_overview_card(dashboard_overview_frame, 2, 0, "Images Analyzed", "247", "📄", "blue")
-        self._create_overview_card(dashboard_overview_frame, 2, 1, "Defects Detected", "89", "🔲", "orange")
-        self._create_overview_card(dashboard_overview_frame, 2, 2, "Success Rate", "94.2%", "📈", "green")
+        # Pull live metrics from DB with graceful fallbacks
+        try:
+            images_count = count_images()
+        except Exception:
+            images_count = 0
+        try:
+            reports_count = count_reports()
+        except Exception:
+            reports_count = 0
+        try:
+            defects_count = count_defects()
+        except Exception:
+            defects_count = 0
+        try:
+            reports_ok = count_reports_without_defects()
+        except Exception:
+            reports_ok = 0
+        success_rate = f"{(reports_ok / reports_count * 100):.1f}%" if reports_count else "-"
+
+        self._create_overview_card(dashboard_overview_frame, 2, 0, "Images Analyzed", str(images_count), "📄", "blue")
+        self._create_overview_card(dashboard_overview_frame, 2, 1, "Defects Detected", str(defects_count), "🔲", "orange")
+        self._create_overview_card(dashboard_overview_frame, 2, 2, "Success Rate", success_rate, "📈", "green")
 
         # Action cards
         action_cards_frame = ctk.CTkFrame(main_content_frame, fg_color="transparent")
@@ -109,9 +140,51 @@ class DashboardApp(ctk.CTk):
         recent_activity_frame.grid_columnconfigure(1, weight=0)
         ctk.CTkLabel(recent_activity_frame, text="Recent Activity", font=("Roboto", 22, "bold"), text_color="#333").grid(row=0, column=0, sticky="w", padx=20, pady=(20, 10), columnspan=2)
 
-        self._create_activity_item(recent_activity_frame, 1, "Analyzed circuit_board_001.jpg", "3 hours ago", "3 defects detected", "#e74c3c")
-        self._create_activity_item(recent_activity_frame, 2, "Generated report for batch_analysis_14", "5 hours ago", "Report downloaded", "#2ecc71")
-        self._create_activity_item(recent_activity_frame, 3, "Analyzed metal_component_052.jpg", "1 day ago", "No defects found", "#2ecc71")
+        # Populate from latest reports
+        def _fmt_time_ago(dt):
+            try:
+                if isinstance(dt, str):
+                    # Try parsing common MySQL datetime string
+                    try:
+                        dt = datetime.datetime.fromisoformat(dt)
+                    except Exception:
+                        try:
+                            dt = datetime.datetime.strptime(dt, "%Y-%m-%d %H:%M:%S")
+                        except Exception:
+                            return str(dt)
+                delta = datetime.datetime.now() - dt
+                s = int(delta.total_seconds())
+                if s < 60:
+                    return f"{s}s ago"
+                m = s // 60
+                if m < 60:
+                    return f"{m} min ago"
+                h = m // 60
+                if h < 24:
+                    return f"{h} hours ago"
+                d = h // 24
+                return f"{d} days ago"
+            except Exception:
+                return "-"
+
+        try:
+            recent = fetch_recent_reports(limit=3) or []
+        except Exception:
+            recent = []
+
+        if recent:
+            for idx, row in enumerate(recent, start=1):
+                fname = row.get("filename") or row.get("imageID") or "Image"
+                desc = f"Analyzed {fname}"
+                dt = row.get("reportDate")
+                time_ago = _fmt_time_ago(dt) if dt else "-"
+                defect_count = int(row.get("defectCount") or 0)
+                status_text = "No defects found" if defect_count == 0 else f"{defect_count} defects detected"
+                status_color = "#2ecc71" if defect_count == 0 else "#e74c3c"
+                self._create_activity_item(recent_activity_frame, idx, desc, time_ago, status_text, status_color)
+        else:
+            # Graceful empty state
+            self._create_activity_item(recent_activity_frame, 1, "No recent reports", "-", "--", "#95a5a6")
 
     def _create_overview_card(self, parent_frame, row, column, title, value, icon, icon_color_key):
         card_frame = ctk.CTkFrame(parent_frame, fg_color="white", corner_radius=10)
