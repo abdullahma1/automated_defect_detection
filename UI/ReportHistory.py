@@ -1,7 +1,7 @@
 import customtkinter as ctk
 import subprocess
 import sys, os, csv
-from tkinter import filedialog
+from tkinter import filedialog, messagebox
 
 # Ensure project root on sys.path for backend imports
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -96,13 +96,14 @@ class AnalysisHistoryApp(ctk.CTk):
         create_card(summary_frame, 0, 3, "Avg Analysis Time", "2.3s", "⏱️", "gray")
 
     def _create_reports_list(self):
-        list_frame = ctk.CTkFrame(self, fg_color="white", corner_radius=10)
-        list_frame.grid(row=3, column=0, sticky="nsew", padx=20, pady=(0, 20))
-        list_frame.grid_columnconfigure(0, weight=1)
+        # Scrollable container for long report lists
+        self.list_frame = ctk.CTkScrollableFrame(self, fg_color="white", corner_radius=10, height=480)
+        self.list_frame.grid(row=3, column=0, sticky="nsew", padx=20, pady=(0, 20))
+        self.list_frame.grid_columnconfigure(0, weight=1)
         
         # Refresh button
         refresh_btn = ctk.CTkButton(
-            list_frame, 
+            self.list_frame, 
             text="🔄 Refresh", 
             width=100,
             command=self.refresh_reports,
@@ -111,15 +112,15 @@ class AnalysisHistoryApp(ctk.CTk):
         )
         refresh_btn.pack(pady=(10,0), anchor="e", padx=20)
 
-        title_label = ctk.CTkLabel(list_frame, text="Recent Analysis Reports", font=("Roboto", 20, "bold"), text_color="#333")
+        title_label = ctk.CTkLabel(self.list_frame, text="Recent Analysis Reports", font=("Roboto", 20, "bold"), text_color="#333")
         title_label.pack(pady=(20, 5), anchor="w", padx=20)
         try:
             self.reports = fetch_recent_reports(limit=50)
         except Exception:
             self.reports = []
-        subtitle_label = ctk.CTkLabel(list_frame, text=f"{len(self.reports)} reports", font=("Roboto", 12), text_color="#666")
+        subtitle_label = ctk.CTkLabel(self.list_frame, text=f"{len(self.reports)} reports", font=("Roboto", 12), text_color="#666")
         subtitle_label.pack(pady=(0, 10), anchor="w", padx=20)
-        ctk.CTkButton(list_frame, text="Export CSV", width=120, height=32, command=self.export_csv).pack(pady=(0, 10), anchor="e", padx=20)
+        ctk.CTkButton(self.list_frame, text="Export CSV", width=120, height=32, command=self.export_csv).pack(pady=(0, 10), anchor="e", padx=20)
 
         for row in self.reports:
             desc = row.get("filename") or "(unknown)"
@@ -129,7 +130,7 @@ class AnalysisHistoryApp(ctk.CTk):
             defect_count = row.get("defectCount", 0) or 0
             status_text = f"{defect_count} defects"
             status_color = "#e74c3c" if defect_count > 0 else "#2ecc71"
-            self._create_report_item(list_frame, desc, report_id, timestamp, analysis_time, status_text, status_color)
+            self._create_report_item(self.list_frame, desc, report_id, timestamp, analysis_time, status_text, status_color)
 
     def _create_report_item(self, parent_frame, filename, report_id, date_time, analysis_time, status_text, status_color):
         item_frame = ctk.CTkFrame(parent_frame, fg_color="#f7f7f7", corner_radius=10, height=80)
@@ -170,8 +171,12 @@ class AnalysisHistoryApp(ctk.CTk):
         """Refresh the reports list with latest data"""
         try:
             self.reports = fetch_recent_reports(limit=50)
-            for widget in self.winfo_children():
-                widget.destroy()
+            # Rebuild the scrollable list area only
+            if hasattr(self, "list_frame") and self.list_frame.winfo_exists():
+                try:
+                    self.list_frame.destroy()
+                except Exception:
+                    pass
             self._create_reports_list()
         except Exception as e:
             messagebox.showerror("Error", f"Failed to refresh reports: {e}")
