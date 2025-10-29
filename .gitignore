@@ -11,3 +11,6 @@ dist/
 .idea/
 *.bak
 archieve/
+data
+classifier/
+_pycache_/
