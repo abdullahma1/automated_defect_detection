@@ -4,6 +4,7 @@ from tkinter import filedialog
 from PIL import Image, ImageTk
 import subprocess
 import sys, os, json
+import shutil
 from pathlib import Path
 import cv2
 import numpy as np
@@ -40,6 +41,12 @@ class ImageUploadApp(ctk.CTk):
         self._create_header()
         self._create_main_content()
         self._load_classifier()
+        # Ensure upload dir exists inside project
+        try:
+            self.upload_dir = Path(PROJECT_ROOT) / "automated_defect_detection" / "uploaded_images"
+            self.upload_dir.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            self.upload_dir = Path.cwd()
         try:
             init_db()
         except Exception:
@@ -140,6 +147,19 @@ class ImageUploadApp(ctk.CTk):
         file_path = filedialog.askopenfilename(filetypes=[("Image files", "*.png *.jpg *.jpeg")])
         if file_path:
             self.image_path = file_path
+            # Copy chosen file into app's uploaded_images folder
+            try:
+                src = Path(self.image_path)
+                dest = self.upload_dir / src.name
+                if not dest.exists() or src.resolve() != dest.resolve():
+                    shutil.copy2(src, dest)
+                # Use copied path going forward
+                self.image_path = str(dest)
+            except Exception as e:
+                try:
+                    self.result_label.configure(text=f"Copy failed: {e}", text_color="#ef4444")
+                except Exception:
+                    pass
             self.update_preview()
             try:
                 self.result_label.configure(text="")
@@ -203,6 +223,16 @@ class ImageUploadApp(ctk.CTk):
             from tkinter import messagebox
             messagebox.showinfo("Info", "Please choose an image first.")
             return
+        # Ensure selected image is inside our upload_dir
+        try:
+            src = Path(self.image_path)
+            if self.upload_dir not in src.parents:
+                dest = self.upload_dir / src.name
+                if not dest.exists() or src.resolve() != dest.resolve():
+                    shutil.copy2(src, dest)
+                self.image_path = str(dest)
+        except Exception:
+            pass
         if self.model is None:
             self.result_label.configure(text="Model not loaded. Train the model to create best.onnx.", text_color="#ef4444")
             return
