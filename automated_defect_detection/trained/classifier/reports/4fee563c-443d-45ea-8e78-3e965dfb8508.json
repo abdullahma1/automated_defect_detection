@@ -1,0 +1,21 @@
+{
+  "reportID": "4fee563c-443d-45ea-8e78-3e965dfb8508",
+  "image": {
+    "imageID": "5f6a6b26-68cd-4525-a6f6-b8fceef1f002",
+    "filename": "20251028_162734_00019.jpg",
+    "originalPath": "C:\\github\\automated_defect_detection\\data\\images\\20251028_162734_00019.jpg",
+    "processedPath": "C:\\github\\automated_defect_detection\\data\\processed\\20251028_162734_processed_00019.jpg"
+  },
+  "reportDate": "2025-10-28T16:27:36.610372",
+  "defectCount": 1,
+  "prediction": "Positive",
+  "confidence": 0.9751542210578918,
+  "defects": [
+    {
+      "defectID": "f7259b81-506a-4bd6-9479-2bbf5b113cd6",
+      "type": "positive",
+      "confidence": 0.9751542210578918,
+      "boundingBox": []
+    }
+  ]
+}
