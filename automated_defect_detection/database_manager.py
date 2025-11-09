@@ -63,6 +63,7 @@ def init_db():
                     reportDate DATETIME,
                     defectCount INT,
                     reportPath VARCHAR(255),
+                    username VARCHAR(255),
                     FOREIGN KEY(imageID) REFERENCES images(imageID)
                 )
             ''')
@@ -110,14 +111,18 @@ def save_image(image):
     if conn:
         cursor = conn.cursor()
         try:
+
             cursor.execute('''
                 INSERT INTO images (imageID, userID, filename, uploadDate, originalPath, processedPath, status) 
                 VALUES (%s, %s, %s, %s, %s, %s, %s)
             ''', (image.imageID, image.userID, image.filename, image.uploadDate, image.originalPath, image.processedPath, image.status))
             conn.commit()
-            print("Image metadata save ho gaya.") # Image metadata saved.
+            print("Image metadata saved successfully.")
         except Error as e:
-            print(f"Image ko save karne mein error: {e}") # Error saving image.
+            print(f"Error saving image to database: {e}")
+            # Rollback transaction on error
+            conn.rollback()
+            raise e
         finally:
             cursor.close()
             conn.close()
@@ -144,8 +149,9 @@ def save_report(report):
         cursor = conn.cursor()
         try:
             cursor.execute('''
-                INSERT INTO reports (reportID, imageID, reportDate, defectCount, reportPath) VALUES (%s, %s, %s, %s, %s)
-            ''', (report.reportID, report.imageID, report.reportDate, report.defectCount, report.reportPath))
+                INSERT INTO reports (reportID, imageID, reportDate, defectCount, reportPath, username) 
+                VALUES (%s, %s, %s, %s, %s, %s)
+            ''', (report.reportID, report.imageID, report.reportDate, report.defectCount, report.reportPath, report.username))
             conn.commit()
             print("Report metadata save ho gaya.") # Report metadata saved.
         except Error as e:
@@ -154,20 +160,54 @@ def save_report(report):
             cursor.close()
             conn.close()
 
-def fetch_recent_reports(limit=10):
+
+def fetch_report_byusername(username):
     conn = get_db_connection()
-    rows = []
+    details = None
     if conn:
         cursor = conn.cursor(dictionary=True)
         try:
             cursor.execute('''
                 SELECT r.reportID, r.imageID, r.reportDate, r.defectCount, r.reportPath,
-                       i.filename, i.userID
+                       i.filename, i.uploadDate, i.originalPath, i.processedPath, i.userID,r.username
                 FROM reports r
                 LEFT JOIN images i ON i.imageID = r.imageID
-                ORDER BY r.reportDate DESC
-                LIMIT %s
-            ''', (int(limit),))
+                WHERE r.username = %s
+            ''', (username,))
+            details = cursor.fetchall() or []
+        except Error as e:
+            print(f"Report fetch karne mein error: {e}")
+        finally:
+            cursor.close()
+            conn.close()
+    return details
+
+def fetch_recent_reports(limit=10, search_term=None):
+    conn = get_db_connection()
+    rows = []
+    if conn:
+        cursor = conn.cursor(dictionary=True)
+        try:
+            query = '''
+                SELECT r.reportID, r.imageID, r.reportDate, r.defectCount, r.reportPath,
+                       i.filename, i.uploadDate, i.originalPath, i.processedPath, i.userID, r.username
+                FROM reports r
+                LEFT JOIN images i ON i.imageID = r.imageID
+                WHERE 1=1
+            '''
+            params = []
+            
+            if search_term:
+                query += ''' AND (r.username = %s OR i.filename = %s)'''
+                params.extend([search_term, search_term])  # Exact match for both fields
+                
+            query += " ORDER BY r.reportDate DESC"
+            
+            if limit:
+                query += " LIMIT %s"
+                params.append(int(limit))
+
+            cursor.execute(query, params)
             rows = cursor.fetchall() or []
         except Error as e:
             print(f"Recent reports fetch karne mein error: {e}")
@@ -184,10 +224,10 @@ def fetch_report_details(report_id):
         try:
             cursor.execute('''
                 SELECT r.reportID, r.imageID, r.reportDate, r.defectCount, r.reportPath,
-                       i.filename, i.uploadDate, i.originalPath, i.processedPath, i.userID
+                       i.filename, i.uploadDate, i.originalPath, i.processedPath, i.userID,r.username
                 FROM reports r
                 LEFT JOIN images i ON i.imageID = r.imageID
-                WHERE r.reportID = %s
+                WHERE r.username = %s or i.filename = %s
             ''', (report_id,))
             details = cursor.fetchone()
             if details:

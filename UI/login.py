@@ -1,6 +1,3 @@
-# 
-
-
 import customtkinter as ctk
 import subprocess
 import sys, os
@@ -11,6 +8,10 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 from automated_defect_detection.auth_service import login_user
+
+# Set the appearance mode and default color theme
+ctk.set_appearance_mode("light")
+ctk.set_default_color_theme("blue")
 
 # Read optional created message passed from sign-up screen
 CREATED_MSG = None

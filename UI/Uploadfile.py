@@ -63,7 +63,7 @@ ctk.set_appearance_mode("light")
 ctk.set_default_color_theme("blue")
 
 class ImageUploadApp(ctk.CTk):
-    def __init__(self):
+    def __init__(self, username=None):
         super().__init__()
         self.title("Image Upload & Analysis")
         self.geometry("1000x700")
@@ -73,6 +73,7 @@ class ImageUploadApp(ctk.CTk):
         self.class_names = ["negative", "positive"]
         self.img_size = 160  # match the training img_size parameter
         self.output_dir = os.path.join(PROJECT_ROOT, "automated_defect_detection", "trained", "classifier")
+        self.username = username
 
         # Configure the main grid
         self.grid_rowconfigure(0, weight=0)  # Header
@@ -139,11 +140,6 @@ class ImageUploadApp(ctk.CTk):
                      font=("Roboto", 12), text_color="#666").pack(pady=(0, 20), anchor="w", padx=20)
 
         # Upload box
-# Old, incorrect code:
-# upload_box = ctk.CTkFrame(upload_frame, fg_color="#f7f7f7", corner_radius=10,
-#                           border_width=2, border_color="#d4d4d4", border_style="dashed")
-
-# Corrected code:
         upload_box = ctk.CTkFrame(upload_frame, fg_color="#f7f7f7", corner_radius=10,
                           border_width=2, border_color="#d4d4d4")
         upload_box.pack(pady=(0, 20), padx=20, fill="both", expand=True)
@@ -158,17 +154,27 @@ class ImageUploadApp(ctk.CTk):
                                       font=("Roboto", 12, "bold"))
         browse_button.pack(pady=(0, 40))
 
-        # Preprocess button
-        preprocess_button = ctk.CTkButton(upload_frame, text="🔬 Preprocess & Detect Defects", width=250, height=40,
-                                          font=("Roboto", 14, "bold"), corner_radius=10)
-        preprocess_button.pack(pady=(0, 20))
+        # Analysis inputs frame
+        analysis_frame = ctk.CTkFrame(upload_frame, fg_color="transparent")
+        analysis_frame.pack(pady=(0, 10), padx=20, fill="x")
+
+        # Username input
+        username_frame = ctk.CTkFrame(analysis_frame, fg_color="transparent")
+        username_frame.pack(pady=(0, 10), fill="x")
+        
+        ctk.CTkLabel(username_frame, text="Username:", font=("Roboto", 12), text_color="#666").pack(side="left", padx=(0, 10))
+        self.username_entry = ctk.CTkEntry(username_frame, placeholder_text="Enter username for report")
+        self.username_entry.pack(side="left", fill="x", expand=True)
+        if self.username:  # If username was provided in constructor
+            self.username_entry.insert(0, self.username)
+            self.username_entry.configure(state="disabled")
 
         # Classification UI additions
         self.result_label = ctk.CTkLabel(upload_frame, text="", font=("Roboto", 13), text_color="#333")
-        self.result_label.pack(pady=(0, 10))
+        self.result_label.pack(pady=(10, 10))
 
-        classify_button = ctk.CTkButton(upload_frame, text="Classify Image", width=250, height=40,
-                                        font=("Roboto", 14, "bold"), corner_radius=10, command=self.classify_image)
+        classify_button = ctk.CTkButton(upload_frame, text="Analyze Image", width=250, height=40,
+                                      font=("Roboto", 14, "bold"), corner_radius=10, command=self.classify_image)
         classify_button.pack(pady=(0, 20))
 
     def _create_preview_section(self, parent_frame):
@@ -196,6 +202,11 @@ class ImageUploadApp(ctk.CTk):
                     shutil.copy2(src, dest)
                 # Use copied path going forward
                 self.image_path = str(dest)
+                
+                # Pre-fill filename field with the base name (without extension)
+                base_name = os.path.splitext(src.name)[0]
+                self.filename_entry.delete(0, "end")
+                self.filename_entry.insert(0, base_name)
             except Exception as e:
                 try:
                     self.result_label.configure(text=f"Copy failed: {e}", text_color="#ef4444")
@@ -273,6 +284,16 @@ class ImageUploadApp(ctk.CTk):
             from tkinter import messagebox
             messagebox.showinfo("Info", "Please choose an image first.")
             return
+            
+        # Check for username
+        username = self.username_entry.get().strip()
+        if not username:
+            messagebox.showinfo("Info", "Please enter a username for the report.")
+            self.username_entry.focus()
+            return
+            
+        # Store username for report creation
+        self.username = username
         # Ensure selected image is inside our upload_dir
         try:
             src = Path(self.image_path)
@@ -303,6 +324,11 @@ class ImageUploadApp(ctk.CTk):
             self.result_label.configure(text=f"Inference error: {e}", text_color="#ef4444")
 
     def _save_classification_to_db(self, label: str, confidence: float):
+        # Skip saving if nothing significant to report (negative with low confidence)
+        if label.lower() == "negative" and confidence < 0.6:
+            self.result_label.configure(text="Skipped saving - no significant findings", text_color="#666")
+            return
+
         try:
             # Create necessary directories
             base_dir = os.path.join(PROJECT_ROOT, "data")
@@ -312,28 +338,39 @@ class ImageUploadApp(ctk.CTk):
             for d in [reports_dir, images_dir, processed_dir]:
                 os.makedirs(d, exist_ok=True)
             
-            # Save image with timestamp
-            filename = os.path.basename(self.image_path) if self.image_path else ""
+            # Generate timestamp and use original filename
             timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-            saved_filename = f"{timestamp}_{filename}"
+            orig_name = os.path.splitext(os.path.basename(self.image_path))[0]
+            orig_ext = os.path.splitext(self.image_path)[1] if self.image_path else ".jpg"
+            
+            # Create filenames
+            saved_filename = f"{timestamp}_{orig_name}{orig_ext}"
             image_copy_path = os.path.join(images_dir, saved_filename)
             
             # Copy original image
             import shutil
             shutil.copy2(self.image_path, image_copy_path)
             
-            # Create processed version with prediction overlay
-            img = cv2.imread(self.image_path)
-            if img is not None:
-                # Add prediction text
-                text = f"{label} ({confidence:.1%})"
-                color = (0, 255, 0) if label.lower() == "negative" else (0, 0, 255)
-                cv2.putText(img, text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
-                
-                # Save processed image
-                processed_filename = f"{timestamp}_processed_{filename}"
-                processed_path = os.path.join(processed_dir, processed_filename)
-                cv2.imwrite(processed_path, img)
+            processed_path = None
+            # Only process image if OpenCV is available and we found defects
+            if cv2 is not None and label.lower() == "positive":
+                img = cv2.imread(self.image_path)
+                if img is not None:
+                    # Add prediction text
+                    text = f"{label} ({confidence:.1%})"
+                    color = (0, 255, 0) if label.lower() == "negative" else (0, 0, 255)
+                    cv2.putText(img, text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
+                    
+                    # Save processed image
+                    processed_filename = f"{timestamp}_processed_{orig_name}.jpg"
+                    processed_path = os.path.join(processed_dir, processed_filename)
+                    cv2.imwrite(processed_path, img)
+            # Get username from entry field or constructor
+            username = self.username if self.username else self.username_entry.get().strip()
+            if not username:
+                self.result_label.configure(text="Please enter a username", text_color="#ef4444")
+                return
+
             # Image metadata with proper paths
             img = ImageModel(
                 user_id=None,
@@ -357,7 +394,13 @@ class ImageUploadApp(ctk.CTk):
             # Report
             report_id = str(uuid.uuid4())
             report_path = os.path.join(self.output_dir, "reports", f"{report_id}.json")
-            rpt = ReportModel(report_id, img.imageID, defect_count=len(defects), report_path=report_path)
+            rpt = ReportModel(
+                report_id=report_id,
+                image_id=img.imageID,
+                defect_count=len(defects),
+                report_path=report_path,
+                username=username  # Use the same username from entry field
+            )
             try:
                 rpt.reportDate = datetime.datetime.now()
             except Exception:

@@ -26,12 +26,13 @@ class Defect:
         self.confidence = confidence
 
 class Report:
-    def __init__(self, report_id, image_id, defect_count, report_path):
+    def __init__(self, report_id, image_id, defect_count, report_path, username=None):
         self.reportID = report_id
         self.imageID = image_id
         self.reportDate = datetime.datetime.now().isoformat()
         self.defectCount = defect_count
         self.reportPath = report_path
+        self.username = username
 
 
 
