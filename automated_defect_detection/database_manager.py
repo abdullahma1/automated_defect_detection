@@ -222,13 +222,15 @@ def fetch_report_details(report_id):
     if conn:
         cursor = conn.cursor(dictionary=True)
         try:
+            # Search by reportID OR username OR filename. Use the same input for all three
             cursor.execute('''
                 SELECT r.reportID, r.imageID, r.reportDate, r.defectCount, r.reportPath,
-                       i.filename, i.uploadDate, i.originalPath, i.processedPath, i.userID,r.username
+                       i.filename, i.uploadDate, i.originalPath, i.processedPath, i.userID, r.username
                 FROM reports r
                 LEFT JOIN images i ON i.imageID = r.imageID
-                WHERE r.username = %s or i.filename = %s
-            ''', (report_id,))
+                WHERE r.reportID = %s OR r.username = %s OR i.filename = %s
+                LIMIT 1
+            ''', (report_id, report_id, report_id))
             details = cursor.fetchone()
             if details:
                 # Fetch defects tied to the image
