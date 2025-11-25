@@ -202,7 +202,7 @@ def export_models(model, device, img_size: int, out_dir: Path, model_name: str):
     traced.save(str(ts_path))
 
     # ONNX
-    onnx_path = out_dir / "best.onnx"
+    onnx_path = out_dir / "best_fp16.onnx"
     torch.onnx.export(
         model,
         example,
@@ -381,7 +381,7 @@ def main():
     # Try quick ONNX load check via OpenCV if available
     try:
         import cv2  # noqa: F401
-        _ = cv2.dnn.readNetFromONNX(str(out_dir / "best.onnx"))
+        _ = cv2.dnn.readNetFromONNX(str(out_dir / "best_fp16.onnx"))
         print("Verified: OpenCV loaded ONNX successfully.")
     except Exception as e:
         print(f"Warning: Could not verify ONNX with OpenCV: {e}")
@@ -396,7 +396,7 @@ Image size: {args.img_size}
 
 Key files:
 - best.pt (PyTorch state dict)
-- best.onnx (ONNX for OpenCV)
+- best_fp16.onnx (ONNX for OpenCV)
 - best.torchscript.pt (TorchScript)
 - label_map.json
 - metrics.json

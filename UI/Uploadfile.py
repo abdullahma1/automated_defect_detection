@@ -244,7 +244,7 @@ class ImageUploadApp(ctk.CTk):
         try:
             project_root = Path(__file__).resolve().parents[1]
             clf_dir = project_root / "automated_defect_detection" / "trained" / "classifier"
-            onnx_path = clf_dir / "best.onnx"
+            onnx_path = clf_dir / "best_fp16.onnx"
             label_map_path = clf_dir / "label_map.json"
             if label_map_path.exists():
                 with open(label_map_path, "r", encoding="utf-8") as f:
@@ -305,7 +305,7 @@ class ImageUploadApp(ctk.CTk):
         except Exception:
             pass
         if self.model is None:
-            self.result_label.configure(text="Model not loaded. Train the model to create best.onnx.", text_color="#ef4444")
+            self.result_label.configure(text="Model not loaded. Train the model to create best_fp16.onnx.", text_color="#ef4444")
             return
         try:
             inp = self._preprocess_for_onnx(self.image_path)

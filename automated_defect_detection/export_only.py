@@ -24,7 +24,7 @@ def export_models(model, device, img_size: int, out_dir: Path):
     print(f"✅ TorchScript model saved at: {ts_path}")
 
     # ONNX export
-    onnx_path = out_dir / "best.onnx"
+    onnx_path = out_dir / "best_fp16.onnx"
     torch.onnx.export(
         model,
         example,

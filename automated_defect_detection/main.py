@@ -1,9 +1,29 @@
+import sys, os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+from UI.login import LoginApp
 from models import User, Image, Report, Defect
 from database_manager import init_db, save_user, load_user, save_image, save_defects, save_report
 from image_processor import ImageProcessor
 import os
 import uuid
 import datetime
+
+
+
+import customtkinter as ctk
+import sys, os
+
+# Ensure project root is on sys.path so absolute imports work
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+
+from automated_defect_detection.auth_service import login_user
+
+# Set the appearance mode and default color theme
+ctk.set_appearance_mode("light")
+ctk.set_default_color_theme("blue")
+
 
 # Database aur directories ko initialize karen
 init_db()
@@ -66,20 +86,11 @@ class DefectDetectionSystem:
         
         return f"Processing complete. Defects detected: {len(defects_list)}. Report saved to {report.reportPath}"
 
-# Example Usage
+# Example Usage    
 if __name__ == "__main__":
-    system = DefectDetectionSystem()
-    
-    # 1. Signup a new user (only needed once)
-    # print(system.signup("user123", "password123"))
+    ctk.set_appearance_mode("light")
+    ctk.set_default_color_theme("blue")
 
-    # 2. User Login
-    if system.login("user123", "password123"):
-        print("Login successful!")
-        
-        # 3. Upload and Process Image
-        # Make sure "C:/Users/User/Desktop/pipeline.jpg" exists for this example
-        result = system.upload_and_process_image("C:/Users/User/Desktop/pipeline.jpg")
-        print(result)
-    else:
-        print("Login failed. Check username and password.")
+    app = LoginApp()
+    app.mainloop()
+
